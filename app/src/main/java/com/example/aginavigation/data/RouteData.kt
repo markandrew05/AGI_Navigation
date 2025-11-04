@@ -309,123 +309,14 @@ object RouteData {
             LatLng(13.14909, 123.71406), LatLng(13.14907, 123.71399), LatLng(13.14897, 123.71367),
             LatLng(13.14886, 123.71332), LatLng(13.14874, 123.71297), LatLng(13.14867, 123.71273),
             LatLng(13.1486, 123.71252), LatLng(13.14834, 123.71163), LatLng(13.14829, 123.7117)
-        ),
-        3 to listOf(
-            LatLng(13.148311, 123.711741),
-            LatLng(13.148008, 123.712095),
-            LatLng(13.148154, 123.712685),
-            LatLng(13.149011, 123.715119),
-            LatLng(13.148818, 123.716964),
-            LatLng(13.147984, 123.720042),
-            LatLng(13.147680, 123.721169),
-            LatLng(13.145445, 123.724056),
-            LatLng(13.142907, 123.727293),
-            LatLng(13.142016, 123.728733),
-            LatLng(13.140466, 123.730129),
-            LatLng(13.139400, 123.731496),
-            LatLng(13.138747, 123.732899),
-            LatLng(13.138684, 123.733973),
-            LatLng(13.138434, 123.734210),
-            LatLng(13.138475, 123.735636),
-            LatLng(13.138523, 123.737100),
-            LatLng(13.138537, 123.739644),
-            LatLng(13.138605, 123.741211),
-            LatLng(13.139057, 123.743778),
-            LatLng(13.139227, 123.744840),
-            LatLng(13.141470, 123.749133),
-            LatLng(13.141928, 123.750753),
-            LatLng(13.142497, 123.751675),
-            LatLng(13.143616, 123.752617),
-            LatLng(13.144370, 123.753016),
-            LatLng(13.144556, 123.753144),
-            LatLng(13.145184, 123.753573),
-            LatLng(13.145962, 123.753686),
-            LatLng(13.146504, 123.753475),
-            LatLng(13.146629, 123.753996),
-            LatLng(13.146731, 123.754068),
-            LatLng(13.147865, 123.753725),
-            LatLng(13.150165, 123.753041),
-            LatLng(13.149954, 123.752012),
-            LatLng(13.148664, 123.751722),
-            LatLng(13.148387, 123.751787),
-            LatLng(13.147684, 123.752368),
-            LatLng(13.147254, 123.752716),
-            LatLng(13.147137, 123.752746),
-            LatLng(13.146933, 123.752531),
-            LatLng(13.146726, 123.752469),
-            LatLng(13.146690, 123.752383),
-            LatLng(13.146183, 123.750854),
-            LatLng(13.146052, 123.749921),
-            LatLng(13.146106, 123.749638),
-            LatLng(13.146613, 123.749010),
-            LatLng(13.146644, 123.748427),
-            LatLng(13.146413, 123.745968),
-            LatLng(13.146274, 123.745305),
-            LatLng(13.146107, 123.744832),
-            LatLng(13.145937, 123.743607),
-            LatLng(13.146054, 123.740254),
-            LatLng(13.146078, 123.736533),
-            LatLng(13.146660, 123.735277),
-            LatLng(13.146693, 123.734524),
-            LatLng(13.144469, 123.734549),
-            LatLng(13.142422, 123.734541),
-            LatLng(13.139452, 123.734584),
-            LatLng(13.139217, 123.734584),
-            LatLng(13.139202, 123.734127),
-            LatLng(13.139047, 123.734004),
-            LatLng(13.138697, 123.733972),
-            LatLng(13.138787, 123.733041),
-            LatLng(13.139425, 123.731566),
-            LatLng(13.140568, 123.730076),
-            LatLng(13.142071, 123.728770),
-            LatLng(13.143054, 123.727084),
-            LatLng(13.145801, 123.723646),
-            LatLng(13.147268, 123.721701),
-            LatLng(13.147718, 123.721140),
-            LatLng(13.148492, 123.718308),
-            LatLng(13.148826, 123.716935),
-            LatLng(13.149727, 123.716788),
-            LatLng(13.149192, 123.714586),
-            LatLng(13.148744, 123.712909),
-            LatLng(13.148351, 123.711656),
-            LatLng(13.148205, 123.711834)
         )
         // add other routes here as needed
     )
 
     /**
-     * Return the route points for a route id. Route 3 is smoothed using Chaikin corner-cutting to reduce jaggedness.
+     * Return the route points for a route id.
      */
     fun getRoutePoints(routeId: Int): List<LatLng> {
-        val raw = rawRoutes[routeId] ?: return emptyList()
-        return if (routeId == 3) {
-            // apply 2 iterations of Chaikin smoothing; change iterations to 1..4 as needed
-            chaikinSmooth(raw, iterations = 2)
-        } else raw
-    }
-
-    // Chaikin corner-cutting smoothing — returns a new list with endpoints preserved
-    private fun chaikinSmooth(points: List<LatLng>, iterations: Int): List<LatLng> {
-        if (points.size < 3 || iterations <= 0) return points
-        var current = points
-        repeat(iterations) {
-            val next = mutableListOf<LatLng>()
-            // keep first point
-            next.add(current.first())
-            for (i in 0 until current.size - 1) {
-                val p0 = current[i]
-                val p1 = current[i + 1]
-                val qLat = 0.75 * p0.latitude + 0.25 * p1.latitude
-                val qLng = 0.75 * p0.longitude + 0.25 * p1.longitude
-                val rLat = 0.25 * p0.latitude + 0.75 * p1.latitude
-                val rLng = 0.25 * p0.longitude + 0.75 * p1.longitude
-                next.add(LatLng(qLat, qLng))
-                next.add(LatLng(rLat, rLng))
-            }
-            // keep last point
-            next.add(current.last())
-            current = next
-        }
-        return current
+        return rawRoutes[routeId] ?: emptyList()
     }
 }

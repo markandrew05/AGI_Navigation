@@ -5,11 +5,11 @@ import android.view.View
 import androidx.core.graphics.toColorInt
 import androidx.fragment.app.Fragment
 import com.example.aginavigation.R
+import com.example.aginavigation.ui.util.RouteArrowDrawer
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.maps.model.MarkerOptions
@@ -20,6 +20,8 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     private lateinit var googleMap: GoogleMap
     private var routePoints: ArrayList<LatLng>? = null
+    private val routeArrowDrawer = RouteArrowDrawer()
+    private var lastArrowZoomBucket: Int? = null
 
     // This is where you initialize the map fragment.
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -71,7 +73,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         )
 
         // Add directional arrows to show route flow
-        addDirectionalArrows(googleMap, points)
+        updateArrowsForZoom(googleMap, points)
 
         // Build bounds to fit the entire route on screen
         val boundsBuilder = LatLngBounds.builder()
@@ -80,86 +82,96 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         // Animate camera to fit route with padding
         googleMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120))
-    }
 
-    private fun addDirectionalArrows(map: GoogleMap, points: List<LatLng>) {
-        // Add arrow markers at regular intervals to show direction
-        val arrowInterval = points.size / 18 // Show about 18 arrows along the route for full map
-        if (arrowInterval < 2) return
-
-        // Create a larger, more prominent arrow icon
-        val arrowIcon = createArrowBitmap()
-
-        for (i in arrowInterval until points.size step arrowInterval) {
-            if (i >= points.size - 1) break
-
-            val point = points[i]
-            val nextPoint = points[i + 1]
-
-            // Calculate bearing (direction) between consecutive points
-            val bearing = calculateBearing(point, nextPoint)
-
-            // Create a larger arrow marker rotated in the direction of travel
-            val markerOptions = MarkerOptions()
-                .position(point)
-                .rotation(bearing)
-                .anchor(0.5f, 0.5f)
-                .flat(true)
-                .icon(arrowIcon)
-                .zIndex(10f) // Place arrows above the route line
-
-            map.addMarker(markerOptions)
+        // Add zoom change listener to redraw arrows at appropriate size
+        googleMap.setOnCameraMoveListener {
+            val zoom = googleMap.cameraPosition.zoom
+            val bucket = zoomBucket(zoom)
+            if (bucket != lastArrowZoomBucket) {
+                lastArrowZoomBucket = bucket
+                updateArrowsForZoom(googleMap, points)
+            }
         }
     }
 
-    private fun createArrowBitmap(): com.google.android.gms.maps.model.BitmapDescriptor {
-        // Create a sleek, skinny gradient arrow
-        val size = 90
+    private fun zoomBucket(zoom: Float): Int = (zoom * 4f).toInt()
+
+    private fun updateArrowsForZoom(map: GoogleMap, points: List<LatLng>) {
+        val zoom = map.cameraPosition.zoom
+        val arrowBitmap = createArrowBitmap(zoom)
+        routeArrowDrawer.addDirectionalArrows(map, points, arrowBitmap)
+    }
+
+    private fun createArrowBitmap(zoom: Float = 14f): com.google.android.gms.maps.model.BitmapDescriptor {
+        // Aggressive downscale at low zoom to avoid clutter
+        val scaleFactor = when {
+            zoom < 12f -> 0.35f
+            zoom < 13f -> 0.5f
+            zoom < 14f -> 0.6f
+            zoom < 15.5f -> 0.9f
+            zoom < 17.5f -> 1.2f
+            else -> 1.5f
+        }
+
+        val baseSize = 80
+        val size = (baseSize * scaleFactor).toInt().coerceAtLeast(20)
         val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
 
-        // Create linear gradient from reddish-orange at tip to deeper reddish-orange at bottom
-        val gradient = android.graphics.LinearGradient(
-            size / 2f, size * 0.05f,  // Start at arrow tip
-            size / 2f, size * 0.95f,  // End at arrow bottom
-            android.graphics.Color.parseColor("#FF5722"),  // Bright reddish-orange at tip
-            android.graphics.Color.parseColor("#BF360C"),  // Deep reddish-orange at bottom
-            android.graphics.Shader.TileMode.CLAMP
-        )
+        val leftColor = android.graphics.Color.parseColor("#C62828")
+        val rightColor = android.graphics.Color.parseColor("#8E0000")
+        val outlineColor = android.graphics.Color.parseColor("#4E0000")
 
-        val paint = android.graphics.Paint().apply {
-            shader = gradient
-            style = android.graphics.Paint.Style.FILL
+        val cx = size / 2f
+        val tipY = size * 0.14f
+        val baseY = size * 0.88f
+        val leftX = size * 0.12f
+        val rightX = size * 0.88f
+
+        val leftPaint = android.graphics.Paint().apply {
             isAntiAlias = true
+            style = android.graphics.Paint.Style.FILL
+            color = leftColor
         }
-
-        // Draw very skinny arrow pointing up (will be rotated by marker rotation)
-        val path = android.graphics.Path().apply {
-            moveTo(size / 2f, size * 0.05f) // Arrow tip (sharp point)
-            lineTo(size * 0.68f, size * 0.4f) // Right point (sharp head)
-            lineTo(size * 0.52f, size * 0.4f) // Right shaft start (very skinny)
-            lineTo(size * 0.52f, size * 0.95f) // Right bottom (long)
-            lineTo(size * 0.48f, size * 0.95f) // Left bottom (very skinny shaft)
-            lineTo(size * 0.48f, size * 0.4f) // Left shaft start
-            lineTo(size * 0.32f, size * 0.4f) // Left point
+        val leftPath = android.graphics.Path().apply {
+            moveTo(cx, tipY)
+            lineTo(cx, baseY)
+            lineTo(leftX, baseY)
             close()
         }
+        canvas.drawPath(leftPath, leftPaint)
 
-        // Draw gradient arrow
-        canvas.drawPath(path, paint)
+        val rightPaint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            style = android.graphics.Paint.Style.FILL
+            color = rightColor
+        }
+        val rightPath = android.graphics.Path().apply {
+            moveTo(cx, tipY)
+            lineTo(rightX, baseY)
+            lineTo(cx, baseY)
+            close()
+        }
+        canvas.drawPath(rightPath, rightPaint)
 
-        return BitmapDescriptorFactory.fromBitmap(bitmap)
-    }
+        val ridgePaint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = (1.0f * scaleFactor).coerceAtLeast(0.8f)
+            color = android.graphics.Color.parseColor("#FFFFFF")
+            alpha = 40
+        }
+        canvas.drawLine(cx, tipY + size * 0.02f, cx, baseY - size * 0.02f, ridgePaint)
 
-    private fun calculateBearing(start: LatLng, end: LatLng): Float {
-        val lat1 = Math.toRadians(start.latitude)
-        val lat2 = Math.toRadians(end.latitude)
-        val lonDiff = Math.toRadians(end.longitude - start.longitude)
+        val outlinePaint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = (1.5f * scaleFactor).coerceAtLeast(1.2f)
+            color = outlineColor
+        }
+        canvas.drawPath(leftPath, outlinePaint)
+        canvas.drawPath(rightPath, outlinePaint)
 
-        val y = Math.sin(lonDiff) * Math.cos(lat2)
-        val x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lonDiff)
-
-        val bearing = Math.toDegrees(Math.atan2(y, x))
-        return ((bearing + 360) % 360).toFloat()
+        return com.google.android.gms.maps.model.BitmapDescriptorFactory.fromBitmap(bitmap)
     }
 }
