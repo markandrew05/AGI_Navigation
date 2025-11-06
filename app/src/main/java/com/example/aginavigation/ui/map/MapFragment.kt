@@ -1,7 +1,13 @@
 package com.example.aginavigation.ui.map
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Bundle
 import android.view.View
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.toColorInt
 import androidx.fragment.app.Fragment
 import com.example.aginavigation.R
@@ -23,10 +29,13 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     private val routeArrowDrawer = RouteArrowDrawer()
     private var lastArrowZoomBucket: Int? = null
 
+    companion object {
+        private const val LOCATION_PERMISSION_REQUEST = 1001
+    }
+
     // This is where you initialize the map fragment.
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
 
         // Retrieve route points if passed from RoutesFragment
         @Suppress("DEPRECATION")
@@ -50,6 +59,8 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         routePoints?.let { points ->
             if (points.isNotEmpty()) {
                 drawRoute(points)
+                // also attempt to show user location if permission available
+                showUserLocationIfPermitted(map)
                 return
             }
         }
@@ -58,6 +69,57 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         val legazpi = LatLng(13.1362, 123.7380)
         googleMap.addMarker(MarkerOptions().position(legazpi).title("Marker in Legazpi"))
         googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(legazpi, 14f))
+
+        // Try to show user location too
+        showUserLocationIfPermitted(map)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun showUserLocationIfPermitted(map: GoogleMap) {
+        val fineLocationGranted = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (fineLocationGranted) {
+            try {
+                map.isMyLocationEnabled = true
+            } catch (e: SecurityException) {
+                // ignore; permission check guarded
+            }
+
+            // Use Android LocationManager to get last-known location (avoids Play Services dependency)
+            val lm = requireContext().getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val last = try {
+                lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                    ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            } catch (e: SecurityException) {
+                null
+            }
+
+            if (last != null) {
+                val userLatLng = LatLng(last.latitude, last.longitude)
+                map.addMarker(MarkerOptions().position(userLatLng).title("You are here"))
+                map.animateCamera(CameraUpdateFactory.newLatLngZoom(userLatLng, 15f))
+            }
+        } else {
+            // Request permission from the user
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), LOCATION_PERMISSION_REQUEST)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LOCATION_PERMISSION_REQUEST) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // permission granted — enable location layer
+                if (::googleMap.isInitialized) {
+                    try {
+                        googleMap.isMyLocationEnabled = true
+                    } catch (e: SecurityException) {
+                        // ignore
+                    }
+
+                    showUserLocationIfPermitted(googleMap)
+                }
+            }
+        }
     }
 
     private fun drawRoute(points: List<LatLng>) {

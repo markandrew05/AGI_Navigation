@@ -1,5 +1,10 @@
 package com.example.aginavigation.ui.routes
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -9,6 +14,7 @@ import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.LinearLayout
 import android.widget.FrameLayout
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import com.example.aginavigation.R
@@ -33,6 +39,10 @@ class RouteDetailFragment : Fragment(), OnMapReadyCallback {
     private val routeArrowDrawer = RouteArrowDrawer()
     private var lastArrowZoomBucket: Int? = null
 
+    companion object {
+        private const val LOCATION_PERMISSION_REQUEST = 2001
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -43,7 +53,6 @@ class RouteDetailFragment : Fragment(), OnMapReadyCallback {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
 
         val btnBack: ImageButton = view.findViewById(R.id.btnBack)
         btnBack.setOnClickListener { findNavController().navigateUp() }
@@ -100,6 +109,8 @@ class RouteDetailFragment : Fragment(), OnMapReadyCallback {
         routePoints?.let { points ->
             if (points.isNotEmpty()) {
                 drawRoute(points)
+                // show user location marker if permission available; do not recenter when a route is shown
+                showUserLocationIfPermitted(map, recenter = false)
                 return
             }
         }
@@ -108,6 +119,51 @@ class RouteDetailFragment : Fragment(), OnMapReadyCallback {
         val default = LatLng(13.1362, 123.7380)
         googleMap?.addMarker(com.google.android.gms.maps.model.MarkerOptions().position(default).title("Marker"))
         googleMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(default, 14f))
+
+        // If no route, center on user when available
+        showUserLocationIfPermitted(map, recenter = true)
+    }
+
+    // Show 'You are here' marker and optionally recenter camera if recenter == true
+    @SuppressLint("MissingPermission")
+    private fun showUserLocationIfPermitted(map: GoogleMap, recenter: Boolean) {
+        val fineLocationGranted = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (fineLocationGranted) {
+            try {
+                map.isMyLocationEnabled = true
+            } catch (e: SecurityException) {
+                // ignore - permission was checked
+            }
+
+            // Use LocationManager to fetch last-known location
+            val lm = requireContext().getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val last = try {
+                lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                    ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            } catch (e: SecurityException) {
+                null
+            }
+
+            if (last != null) {
+                val userLatLng = LatLng(last.latitude, last.longitude)
+                map.addMarker(MarkerOptions().position(userLatLng).title("You are here"))
+                if (recenter) {
+                    map.animateCamera(CameraUpdateFactory.newLatLngZoom(userLatLng, 15f))
+                }
+            }
+        } else {
+            // request permission
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), LOCATION_PERMISSION_REQUEST)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LOCATION_PERMISSION_REQUEST) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                googleMap?.let { showUserLocationIfPermitted(it, recenter = true) }
+            }
+        }
     }
 
     private fun populateRouteDetails(view: View, routeInfo: RouteDetailInfo) {
@@ -359,9 +415,8 @@ class RouteDetailFragment : Fragment(), OnMapReadyCallback {
         val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
 
-        // Colors to match two-tone chevron (left lighter, right darker)
-        val leftColor = android.graphics.Color.parseColor("#C62828")   // darker red
-        val rightColor = android.graphics.Color.parseColor("#8E0000")  // much darker red
+        val leftColor = android.graphics.Color.parseColor("#C62828")
+        val rightColor = android.graphics.Color.parseColor("#8E0000")
         val outlineColor = android.graphics.Color.parseColor("#4E0000")
 
         val cx = size / 2f
@@ -370,7 +425,6 @@ class RouteDetailFragment : Fragment(), OnMapReadyCallback {
         val leftX = size * 0.12f
         val rightX = size * 0.88f
 
-        // Left triangle
         val leftPaint = android.graphics.Paint().apply {
             isAntiAlias = true
             style = android.graphics.Paint.Style.FILL
@@ -384,7 +438,6 @@ class RouteDetailFragment : Fragment(), OnMapReadyCallback {
         }
         canvas.drawPath(leftPath, leftPaint)
 
-        // Right triangle
         val rightPaint = android.graphics.Paint().apply {
             isAntiAlias = true
             style = android.graphics.Paint.Style.FILL
@@ -398,7 +451,6 @@ class RouteDetailFragment : Fragment(), OnMapReadyCallback {
         }
         canvas.drawPath(rightPath, rightPaint)
 
-        // Center ridge (optional)
         val ridgePaint = android.graphics.Paint().apply {
             isAntiAlias = true
             style = android.graphics.Paint.Style.STROKE
@@ -408,7 +460,6 @@ class RouteDetailFragment : Fragment(), OnMapReadyCallback {
         }
         canvas.drawLine(cx, tipY + size * 0.02f, cx, baseY - size * 0.02f, ridgePaint)
 
-        // Add subtle dark outline to avoid blending with map
         val outlinePaint = android.graphics.Paint().apply {
             isAntiAlias = true
             style = android.graphics.Paint.Style.STROKE
